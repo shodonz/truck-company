@@ -32,33 +32,30 @@
   }
 
   /* ---------------------------------------------------- балансировка сетки
-     Категория режется на страницы так, чтобы на каждой было близко к
-     targetPerPage блюд. Категория из ≤ mergeThreshold блюд не получает
-     отдельную страницу — присоединяется к последней странице предыдущей
-     категории (никогда не смешивается ВНУТРИ карточек, только на одном
-     физическом листе появляется второй подзаголовок). */
-  function paginate(menu, target, mergeMax) {
-    var pages = []; // { sections: [{cat, items}] }
-    var lastPageOfCat = {}; // catId -> page объект (последняя страница этой категории)
-    var mergeInto = CFG.mergeInto || {};
-
+     Каждая категория — только на своих страницах, никогда не делится с
+     соседней категорией. Если блюд меньше, чем ячеек в сетке, оставшиеся
+     места на странице остаются пустыми (не подтягиваем чужие блюда). */
+  function paginate(menu, target) {
+    var pages = []; // { cat, items }[]
     menu.forEach(function (cat) {
-      var n = cat.items.length;
-      if (n <= mergeMax && pages.length) {
-        var targetCatId = mergeInto[cat.id];
-        var targetPage = (targetCatId && lastPageOfCat[targetCatId]) || pages[pages.length - 1];
-        targetPage.sections.push({ cat: cat, items: cat.items });
-        return;
-      }
+      var items = sortByPhotoAvailability(cat.items);
+      var n = items.length;
       var chunks = Math.max(1, Math.ceil(n / target));
       var size = Math.ceil(n / chunks);
       for (var i = 0; i < n; i += size) {
-        var page = { sections: [{ cat: cat, items: cat.items.slice(i, i + size) }] };
-        pages.push(page);
-        lastPageOfCat[cat.id] = page;
+        pages.push({ cat: cat, items: items.slice(i, i + size) });
       }
     });
     return pages;
+  }
+
+  /* Блюда с реальным фото — впереди, блюда-заглушки (нет фото) — в конце
+     той же категории, чтобы на странице не чередовались фото/пусто/фото. */
+  function sortByPhotoAvailability(items) {
+    var noPhoto = CFG.noPhotoIds || [];
+    var withPhoto = items.filter(function (it) { return noPhoto.indexOf(it.id) === -1; });
+    var without   = items.filter(function (it) { return noPhoto.indexOf(it.id) !== -1; });
+    return withPhoto.concat(without);
   }
 
   function dishCard(item) {
@@ -137,29 +134,21 @@
     return page;
   }
 
-  function menuPage(sections) {
+  function menuPage(cat, items) {
     var page = pageShell(null);
     var top = el("div", "page__top");
     top.appendChild(el("div", "brandmark", CFG.brandTop));
 
-    sections.forEach(function (sec, idx) {
-      var title = CFG.categoryTitles[sec.cat.id] || sec.cat.en;
-      if (idx === 0) {
-        var row = el("div", "cat-row");
-        row.appendChild(el("span", "orn", ICON.orn));
-        row.appendChild(el("h2", "cat-title", title));
-        row.appendChild(el("span", "orn", ICON.orn));
-        top.appendChild(row);
-      } else {
-        top.appendChild(el("div", "sub-title", title));
-      }
-    });
+    var title = CFG.categoryTitles[cat.id] || cat.en;
+    var row = el("div", "cat-row");
+    row.appendChild(el("span", "orn", ICON.orn));
+    row.appendChild(el("h2", "cat-title", title));
+    row.appendChild(el("span", "orn", ICON.orn));
+    top.appendChild(row);
     page.appendChild(top);
 
     var grid = el("div", "grid");
-    sections.forEach(function (sec) {
-      sec.items.forEach(function (item) { grid.appendChild(dishCard(item)); });
-    });
+    items.forEach(function (item) { grid.appendChild(dishCard(item)); });
     page.appendChild(grid);
 
     page.appendChild(footNode());
@@ -194,8 +183,8 @@
   function build() {
     var root = document.getElementById("root");
     root.appendChild(coverPage());
-    paginate(MENU, CFG.targetPerPage, CFG.mergeThreshold).forEach(function (p) {
-      root.appendChild(menuPage(p.sections));
+    paginate(MENU, CFG.targetPerPage).forEach(function (p) {
+      root.appendChild(menuPage(p.cat, p.items));
     });
     (document.fonts ? document.fonts.ready : Promise.resolve()).then(fitPages);
   }
